@@ -1,0 +1,585 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.24.0",
+    "script_metadata_hash": null
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "1d0db38904205bec4d6f6f6a1f6cec3e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "f5d0db103e16b02e67d90ea23498d183",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"ssl-dimensional-collapse-across-time-series-modalities-corrected-pipeline\">SSL Dimensional Collapse Across Time-Series Modalities \u2014 corrected pipeline</h1>\n<span class=\"paragraph\">This notebook is the single source of truth for the study: data loading,\nmodel, training, sweep, and analysis, all in one place, with every flaw\nfrom the audit fixed. Run cells top to bottom.</span>\n<h2 id=\"whats-fixed-here-vs-the-original-repo\">What's fixed here vs. the original repo</h2>\n<table>\n<thead>\n<tr>\n<th>#</th>\n<th>Flaw</th>\n<th>Fix</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td>Effective rank measured on augmented views (contaminated by alpha twice)</td>\n<td>New <code>compute_clean_erank()</code>: forward pass on a <strong>fixed, un-augmented</strong> eval batch, every epoch</td>\n</tr>\n<tr>\n<td>2</td>\n<td>HAR: random split ignores subject structure (near-duplicate leakage)</td>\n<td>Every dataset now uses its <strong>official canonical train/test split</strong>; HAR's official split is subject-disjoint by construction</td>\n</tr>\n<tr>\n<td>3</td>\n<td>Test set included in the SSL pretraining pool (transductive, undisclosed)</td>\n<td>Pretraining pool = official train only. Official test is <strong>never</strong> touched until final eval</td>\n</tr>\n<tr>\n<td>4</td>\n<td>Pooled erank-accuracy correlation confounded by alpha</td>\n<td>Partial correlation (controlling alpha, width) reported as primary; pooled kept for comparison</td>\n</tr>\n<tr>\n<td>5</td>\n<td>3 (now 5) seeds per config treated as independent (pseudo-replication)</td>\n<td>Both raw-n and config-level (seed-averaged, n=10) correlations reported</td>\n</tr>\n<tr>\n<td>6</td>\n<td>Non-standard splits break comparability with published benchmarks</td>\n<td>Official UCR/UEA splits used everywhere</td>\n</tr>\n<tr>\n<td>7</td>\n<td>erank measured on projector output (z), accuracy driven by encoder output (h)</td>\n<td>Both <code>erank(h)</code> and <code>erank(z)</code> logged; <code>erank(h)</code> is primary</td>\n</tr>\n<tr>\n<td>8</td>\n<td>Batch size (64) caps erank estimate below the true value</td>\n<td>Clean erank computed on a large fixed eval batch (up to 512), raising the cap</td>\n</tr>\n<tr>\n<td>9</td>\n<td>No baselines</td>\n<td>Random-init-encoder probe + majority-class accuracy, per dataset</td>\n</tr>\n<tr>\n<td>10</td>\n<td>Claims implicitly generalized beyond VICReg</td>\n<td>Explicitly scoped to VICReg throughout this writeup</td>\n</tr>\n<tr>\n<td>11</td>\n<td>Early-prediction analysis only regressed fine-tune acc, not linear probe</td>\n<td>Both regressed, both reported</td>\n</tr>\n<tr>\n<td>12</td>\n<td><code>--cross_dataset</code> claimed but never implemented</td>\n<td>Actually implemented below (see Analysis \u00a76)</td>\n</tr>\n<tr>\n<td>13</td>\n<td><code>--eval_epochs</code> claimed but never implemented</td>\n<td>Not used; removed from docs</td>\n</tr>\n<tr>\n<td>14</td>\n<td>Seed controlled both model init AND the data split</td>\n<td>Split uses a <strong>fixed</strong> <code>PROBE_SPLIT_SEED</code>, independent of the run's <code>torch</code> seed</td>\n</tr>\n<tr>\n<td>15</td>\n<td>3 of 5 datasets had no loader/data in the repo</td>\n<td>All 5 loaders + preprocessed <code>.pkl</code> files included</td>\n</tr>\n<tr>\n<td>16</td>\n<td>ECG5000 sweep only had 2 seeds despite claiming 3</td>\n<td>All datasets now use the same <code>SEEDS</code> list, verified below</td>\n</tr>\n<tr>\n<td>17</td>\n<td><code>channels x length</code> \"predicts almost perfectly\" (n=5)</td>\n<td>Reframed as a descriptive, exploratory observation only</td>\n</tr>\n</tbody>\n</table>\n<span class=\"paragraph\">Set <code>QUICK_TEST = True</code> on your first run in molab to smoke-test the whole\npipeline (~1-2 min, tiny grid) before committing to the full sweep.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "4126da302cadff03acd42ea1fcb183fe",
+      "outputs": [
+        {
+          "type": "error",
+          "ename": "exception",
+          "evalue": "name 'get_ipython' is not defined",
+          "traceback": null
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stderr",
+          "text": "<span class=\"codehilite\"><div class=\"highlight\"><pre><span></span><span class=\"gt\">Traceback (most recent call last):</span>\n  File <span class=\"nb\">&quot;/tmp/marimo_80/__marimo__cell_vblA_.py&quot;</span>, line <span class=\"m\">2</span>, in <span class=\"n\">&lt;module&gt;</span>\n<span class=\"w\">    </span><span class=\"n\">get_ipython</span><span class=\"p\">()</span><span class=\"o\">.</span><span class=\"n\">run_line_magic</span><span class=\"p\">(</span><span class=\"s2\">&quot;pip&quot;</span><span class=\"p\">,</span> <span class=\"s2\">&quot;install -q torch numpy pandas scipy matplotlib scikit-learn statsmodels&quot;</span><span class=\"p\">)</span>\n<span class=\"w\">    </span><span class=\"pm\">^^^^^^^^^^^</span>\n<span class=\"gr\">NameError</span>: <span class=\"n\">name &#39;get_ipython&#39; is not defined</span>\n</pre></div>\n</span>",
+          "mimetype": "application/vnd.marimo+traceback"
+        }
+      ]
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "264fbced0c1dae25d7920b63566c6e9d",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "Using device: cuda\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "cb1e0d77c15c4a930dcee1761464946a",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"1-config\">1. Config</h2>\n<span class=\"paragraph\"><code>QUICK_TEST=True</code> runs a 1-minute smoke test (2 datasets skipped, tiny\ngrid, 3 epochs) so you can confirm everything executes before the full\nsweep. Flip to <code>False</code> for the real run.</span>\n<span class=\"paragraph\">Seeds increased from 3 -&gt; 5 per your request (partially addresses flaw</span>\n<h1 id=\"5s-power-concern-the-analysis-section-still-reports-the-honest\">5's power concern; the analysis section still reports the honest</h1>\n<span class=\"paragraph\">config-level n=10 alongside the raw n=50 for full transparency).</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "5269d255e0a003bbf75cdd814fe40386",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "c9dd5f7e2bbcb440a5c0d52299a20c15",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"2-data-loading-official-splits-only\">2. Data loading -- official splits only</h2>\n<span class=\"paragraph\">Loads the preprocessed <code>.pkl</code> (already z-normalized per series, already\ncarrying the official train/test split). Builds:</span>\n<ul>\n<li><code>unlabeled_idx</code>  = official train only (fix #3: test never enters pretraining)</li>\n<li><code>probe_train_idx</code>, <code>probe_val_idx</code> = stratified split of official train,\n  using the FIXED <code>PROBE_SPLIT_SEED</code> (fix #14: independent of run seed)</li>\n<li><code>probe_test_idx</code> = official test (fix #6: comparable to published splits;\n  for HAR this is also subject-disjoint by construction -- fix #2)</li>\n</ul></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "98c2f0899cc2f58aed50df86412a9a4e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "234cfa8c76cd59539d3bd8ee55776f62",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"3-model-unchanged-fixed-capacity-encoder-swept-width-projector\">3. Model (unchanged) -- fixed-capacity encoder, swept-width projector</h2>\n<span class=\"paragraph\">Per Garrido et al. 2023, most \"helpful collapse\" lives in the projector,\nnot the encoder, so encoder capacity is held fixed (out_dim=64) while\nprojector width is the swept variable. Nothing here needed fixing; the\naudit's issues were all in measurement/splitting, not architecture.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "a188057c395ba5cdd5ee2c8d27a71eaf",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Kclp",
+      "code_hash": "d3ab3a79df96004349819567734d5ac9",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"4-augmentations-unchanged\">4. Augmentations (unchanged)</h2>\n<span class=\"paragraph\">The alpha-parametrized augmentation stack itself was never the problem --\nonly <em>where</em> effective rank got measured relative to it. Kept verbatim.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "emfo",
+      "code_hash": "0197e70aa098e8fad6129befcce09d5e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Hstk",
+      "code_hash": "fc9f335da87ca1acb0f31fbe57199ef0",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"5-vicreg-loss-unchanged\">5. VICReg loss (unchanged)</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "nWHF",
+      "code_hash": "5c1bb7deb5d7e0ae4ef4a72f12333265",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "iLit",
+      "code_hash": "ecfd17b149d8dbdcf57746415da068d9",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"6-effective-rank-corrected-measurement-fixes-1-7-8\">6. Effective rank -- corrected measurement (fixes #1, #7, #8)</h2>\n<span class=\"paragraph\"><code>effective_rank()</code> itself (Roy &amp; Vetterli 2007) is unchanged -- it was\nnever wrong. What was wrong is <em>what got fed into it</em>. <code>compute_clean_erank</code>\nfixes all three measurement flaws at once:</span>\n<ul>\n<li>evaluates on a <strong>fixed, un-augmented</strong> batch (fix #1: alpha can no longer\n  shrink the metric directly through input variance, only through what the\n  model actually learned)</li>\n<li>logs <strong>both</strong> <code>erank(h)</code> (encoder output -- what accuracy actually depends\n  on) and <code>erank(z)</code> (projector output -- what the original repo only\n  measured) (fix #7)</li>\n<li>uses a large fixed eval batch (up to 512 samples) instead of the training\n  batch size (64), raising the rank cap from <code>min(64,dim)-1=63</code> well above\n  the largest observed erank (fix #8)</li>\n</ul>\n<span class=\"paragraph\">The original (flawed) on-augmented-view z-only measurement is <em>also</em> kept\nand logged as <code>erank_aug_z</code>, purely so the analysis section can show a\ndirect before/after comparison of how much the fix changes the conclusions.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ZHCJ",
+      "code_hash": "16993642c0c208aad12f0cbc817b0a91",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ROlb",
+      "code_hash": "73f4de675dc17778bcd9dc92fe2f610e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"7-downstream-evaluation-unchanged-logic-verbatim-from-evaluatepy\">7. Downstream evaluation (unchanged logic, verbatim from evaluate.py)</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "qnkX",
+      "code_hash": "ab16d66aed585f28b06003032a06ecc5",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "TqIu",
+      "code_hash": "6232a4a178a885cfe6bdef904038be12",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"8-baselines-fix-9\">8. Baselines (fix #9)</h2>\n<span class=\"paragraph\">Computed once per dataset, independent of alpha/width: majority-class\naccuracy (trivial ceiling for \"did the probe learn anything\") and a\nrandom-initialized encoder (skips pretraining entirely, otherwise\nidentical probe protocol) so downstream numbers have something to beat.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Vxnm",
+      "code_hash": "0a797f6998a21f0831fa89f5db5461a8",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "DnEU",
+      "code_hash": "51fcb7b0e4fa2db7b87148931bb142e1",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"9-one-training-run-fixes-1-3-7-8-14-all-applied-here\">9. One training run (fixes #1, #3, #7, #8, #14 all applied here)</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ulZA",
+      "code_hash": "51d046d4e8adefba088a05f9577dc4fc",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ecfG",
+      "code_hash": "60bc746d0fe5e9325986ea90e72e7257",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"10-sweep-resumable-safe-to-interrupt-and-re-run\">10. Sweep (resumable -- safe to interrupt and re-run)</h2>\n<span class=\"paragraph\">If molab hiccups or you need to stop partway, just re-run this cell: any\nrun whose JSON already exists on disk is skipped (see <code>run_one</code> above).</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Pvdt",
+      "code_hash": "960e870c7acb1db51a2e499a62b53dec",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ZBYS",
+      "code_hash": "8715b2ccb4dae2b1b60c51f581309a61",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"11-run-everything\">11. Run everything</h2>\n<span class=\"paragraph\">Baselines first (cheap), then the full sweep, per dataset. EigenWorms is\nby far the most expensive (17,984-timestep series) -- it's placed last so\nthe other four finish and are analyzable even if you run out of time on\nit. On a GPU this whole thing should be well under an hour; on CPU,\nEigenWorms alone could take much longer -- check the printed per-run\ntimings after the first couple of runs and extrapolate before committing.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "aLJB",
+      "code_hash": "8dcde9ac5a6792af049c5f8e9e087ff9",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='aLJB-0' random-id='17344093-ccfb-857c-364d-b540594a3810'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.5837777777777777,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.6663703703703704,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9318518518518518,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;forda&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.5159090909090909,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.5159090909090909,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9060606060606061,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;har&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.18221920597217509,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4468951476077367,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.8993326546770728,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;spokenarabicdigits&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.1,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4566666666666667,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9910606060606062,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;eigenworms&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.4198473282442748,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4198473282442748,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.7709923664122137,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3}]&quot;' data-total-rows='5' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='false' data-page-size='10' data-field-types='[[&quot;dataset&quot;,[&quot;string&quot;,&quot;str&quot;]],[&quot;majority_class_acc&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_linear_probe_acc_mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_finetune_acc_mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_n_seeds&quot;,[&quot;integer&quot;,&quot;int64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-search='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-hidden-columns='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "{'dataset': 'ecg5000', 'majority_class_acc': 0.5837777777777777, 'random_encoder_linear_probe_acc_mean': 0.6663703703703704, 'random_encoder_finetune_acc_mean': 0.9318518518518518, 'random_encoder_n_seeds': 3}\n{'dataset': 'forda', 'majority_class_acc': 0.5159090909090909, 'random_encoder_linear_probe_acc_mean': 0.5159090909090909, 'random_encoder_finetune_acc_mean': 0.9060606060606061, 'random_encoder_n_seeds': 3}\n{'dataset': 'har', 'majority_class_acc': 0.18221920597217509, 'random_encoder_linear_probe_acc_mean': 0.4468951476077367, 'random_encoder_finetune_acc_mean': 0.8993326546770728, 'random_encoder_n_seeds': 3}\n{'dataset': 'spokenarabicdigits', 'majority_class_acc': 0.1, 'random_encoder_linear_probe_acc_mean': 0.4566666666666667, 'random_encoder_finetune_acc_mean': 0.9910606060606062, 'random_encoder_n_seeds': 3}\n{'dataset': 'eigenworms', 'majority_class_acc': 0.4198473282442748, 'random_encoder_linear_probe_acc_mean': 0.4198473282442748, 'random_encoder_finetune_acc_mean': 0.7709923664122137, 'random_encoder_n_seeds': 3}\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "nHfw",
+      "code_hash": "8896c853cee76fb95cfdb6c09d6e4c59",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "\n=== ecg5000: 50 runs (5 alphas x 2 widths x 5 seeds) ===\n[ecg5000] alpha0.00_proj64_seed1  erank_h(clean)=9.51  lin=0.660  ft=0.934  (2.6s)\n[ecg5000] alpha0.00_proj64_seed2  erank_h(clean)=11.74  lin=0.584  ft=0.936  (2.6s)\n[ecg5000] alpha0.00_proj64_seed3  erank_h(clean)=10.93  lin=0.582  ft=0.930  (2.6s)\n[ecg5000] alpha0.00_proj64_seed4  erank_h(clean)=10.98  lin=0.585  ft=0.928  (2.6s)\n[ecg5000] alpha0.00_proj512_seed0  erank_h(clean)=18.19  lin=0.582  ft=0.930  (2.5s)\n[ecg5000] alpha0.00_proj512_seed1  erank_h(clean)=15.10  lin=0.574  ft=0.932  (2.5s)\n[ecg5000] alpha0.00_proj512_seed2  erank_h(clean)=16.90  lin=0.579  ft=0.932  (2.5s)\n[ecg5000] alpha0.00_proj512_seed3  erank_h(clean)=16.28  lin=0.616  ft=0.930  (2.5s)\n[ecg5000] alpha0.00_proj512_seed4  erank_h(clean)=16.37  lin=0.584  ft=0.928  (2.5s)\n[ecg5000] alpha0.25_proj64_seed0  erank_h(clean)=4.75  lin=0.861  ft=0.931  (3.2s)\n[ecg5000] alpha0.25_proj64_seed1  erank_h(clean)=4.06  lin=0.876  ft=0.932  (3.1s)\n[ecg5000] alpha0.25_proj64_seed2  erank_h(clean)=4.12  lin=0.870  ft=0.928  (3.1s)\n[ecg5000] alpha0.25_proj64_seed3  erank_h(clean)=4.00  lin=0.866  ft=0.930  (3.1s)\n[ecg5000] alpha0.25_proj64_seed4  erank_h(clean)=3.83  lin=0.884  ft=0.923  (3.1s)\n[ecg5000] alpha0.25_proj512_seed0  erank_h(clean)=5.11  lin=0.875  ft=0.929  (3.1s)\n[ecg5000] alpha0.25_proj512_seed1  erank_h(clean)=4.61  lin=0.869  ft=0.930  (3.1s)\n[ecg5000] alpha0.25_proj512_seed2  erank_h(clean)=4.35  lin=0.859  ft=0.932  (3.2s)\n[ecg5000] alpha0.25_proj512_seed3  erank_h(clean)=5.01  lin=0.862  ft=0.931  (3.1s)\n[ecg5000] alpha0.25_proj512_seed4  erank_h(clean)=4.66  lin=0.877  ft=0.930  (3.1s)\n[ecg5000] alpha0.50_proj64_seed0  erank_h(clean)=3.92  lin=0.866  ft=0.930  (3.1s)\n[ecg5000] alpha0.50_proj64_seed1  erank_h(clean)=3.01  lin=0.875  ft=0.931  (3.1s)\n[ecg5000] alpha0.50_proj64_seed2  erank_h(clean)=3.11  lin=0.876  ft=0.926  (3.1s)\n[ecg5000] alpha0.50_proj64_seed3  erank_h(clean)=3.95  lin=0.874  ft=0.930  (3.1s)\n[ecg5000] alpha0.50_proj64_seed4  erank_h(clean)=3.45  lin=0.877  ft=0.928  (3.1s)\n[ecg5000] alpha0.50_proj512_seed0  erank_h(clean)=3.92  lin=0.877  ft=0.929  (3.1s)\n[ecg5000] alpha0.50_proj512_seed1  erank_h(clean)=4.20  lin=0.868  ft=0.927  (3.1s)\n[ecg5000] alpha0.50_proj512_seed2  erank_h(clean)=3.84  lin=0.878  ft=0.932  (3.1s)\n[ecg5000] alpha0.50_proj512_seed3  erank_h(clean)=3.41  lin=0.874  ft=0.930  (3.1s)\n[ecg5000] alpha0.50_proj512_seed4  erank_h(clean)=4.23  lin=0.886  ft=0.931  (3.1s)\n[ecg5000] alpha0.75_proj64_seed0  erank_h(clean)=3.29  lin=0.888  ft=0.931  (3.1s)\n[ecg5000] alpha0.75_proj64_seed1  erank_h(clean)=3.38  lin=0.875  ft=0.932  (3.1s)\n[ecg5000] alpha0.75_proj64_seed2  erank_h(clean)=3.27  lin=0.875  ft=0.928  (3.1s)\n[ecg5000] alpha0.75_proj64_seed3  erank_h(clean)=3.43  lin=0.872  ft=0.930  (3.1s)\n[ecg5000] alpha0.75_proj64_seed4  erank_h(clean)=3.05  lin=0.885  ft=0.928  (3.1s)\n[ecg5000] alpha0.75_proj512_seed0  erank_h(clean)=3.54  lin=0.887  ft=0.930  (3.1s)\n[ecg5000] alpha0.75_proj512_seed1  erank_h(clean)=3.84  lin=0.872  ft=0.929  (3.1s)\n[ecg5000] alpha0.75_proj512_seed2  erank_h(clean)=3.84  lin=0.876  ft=0.931  (3.1s)\n[ecg5000] alpha0.75_proj512_seed3  erank_h(clean)=3.87  lin=0.886  ft=0.931  (3.0s)\n[ecg5000] alpha0.75_proj512_seed4  erank_h(clean)=3.54  lin=0.887  ft=0.930  (3.1s)\n[ecg5000] alpha1.00_proj64_seed1  erank_h(clean)=3.45  lin=0.875  ft=0.932  (3.1s)\n[ecg5000] alpha1.00_proj64_seed2  erank_h(clean)=3.36  lin=0.890  ft=0.928  (3.1s)\n[ecg5000] alpha1.00_proj64_seed3  erank_h(clean)=3.63  lin=0.887  ft=0.931  (3.1s)\n[ecg5000] alpha1.00_proj64_seed4  erank_h(clean)=3.22  lin=0.886  ft=0.928  (3.1s)\n[ecg5000] alpha1.00_proj512_seed0  erank_h(clean)=3.37  lin=0.872  ft=0.926  (3.0s)\n[ecg5000] alpha1.00_proj512_seed1  erank_h(clean)=3.38  lin=0.871  ft=0.932  (3.0s)\n[ecg5000] alpha1.00_proj512_seed2  erank_h(clean)=3.10  lin=0.890  ft=0.932  (3.1s)\n[ecg5000] alpha1.00_proj512_seed3  erank_h(clean)=3.85  lin=0.860  ft=0.930  (3.0s)\n[ecg5000] alpha1.00_proj512_seed4  erank_h(clean)=3.58  lin=0.884  ft=0.930  (3.0s)\n=== ecg5000 sweep done (50/50 attempted) ===\n\n=== forda: 50 runs (5 alphas x 2 widths x 5 seeds) ===\n[forda] alpha0.00_proj64_seed0  erank_h(clean)=9.60  lin=0.836  ft=0.927  (18.9s)\n[forda] alpha0.00_proj64_seed1  erank_h(clean)=9.73  lin=0.816  ft=0.930  (19.1s)\n[forda] alpha0.00_proj64_seed2  erank_h(clean)=9.10  lin=0.823  ft=0.912  (18.8s)\n[forda] alpha0.00_proj64_seed3  erank_h(clean)=10.76  lin=0.795  ft=0.924  (18.8s)\n[forda] alpha0.00_proj64_seed4  erank_h(clean)=10.43  lin=0.805  ft=0.923  (18.8s)\n[forda] alpha0.00_proj512_seed0  erank_h(clean)=14.73  lin=0.809  ft=0.926  (18.1s)\n[forda] alpha0.00_proj512_seed1  erank_h(clean)=15.68  lin=0.773  ft=0.899  (18.2s)\n[forda] alpha0.00_proj512_seed2  erank_h(clean)=14.12  lin=0.837  ft=0.923  (18.2s)\n[forda] alpha0.00_proj512_seed3  erank_h(clean)=16.02  lin=0.805  ft=0.891  (18.1s)\n[forda] alpha0.00_proj512_seed4  erank_h(clean)=14.20  lin=0.811  ft=0.927  (18.1s)\n[forda] alpha0.25_proj64_seed0  erank_h(clean)=2.57  lin=0.876  ft=0.924  (23.9s)\n[forda] alpha0.25_proj64_seed1  erank_h(clean)=2.23  lin=0.892  ft=0.923  (23.8s)\n[forda] alpha0.25_proj64_seed2  erank_h(clean)=2.62  lin=0.883  ft=0.925  (23.8s)\n[forda] alpha0.25_proj64_seed3  erank_h(clean)=2.36  lin=0.871  ft=0.894  (23.8s)\n[forda] alpha0.25_proj64_seed4  erank_h(clean)=2.60  lin=0.882  ft=0.932  (23.8s)\n[forda] alpha0.25_proj512_seed0  erank_h(clean)=3.35  lin=0.879  ft=0.928  (23.0s)\n[forda] alpha0.25_proj512_seed1  erank_h(clean)=3.57  lin=0.898  ft=0.927  (23.2s)\n[forda] alpha0.25_proj512_seed2  erank_h(clean)=3.82  lin=0.878  ft=0.915  (23.2s)\n[forda] alpha0.25_proj512_seed3  erank_h(clean)=3.42  lin=0.873  ft=0.867  (23.2s)\n[forda] alpha0.25_proj512_seed4  erank_h(clean)=3.63  lin=0.886  ft=0.894  (23.3s)\n[forda] alpha0.50_proj64_seed0  erank_h(clean)=2.55  lin=0.875  ft=0.911  (24.0s)\n[forda] alpha0.50_proj64_seed1  erank_h(clean)=2.12  lin=0.870  ft=0.928  (23.9s)\n[forda] alpha0.50_proj64_seed2  erank_h(clean)=2.12  lin=0.870  ft=0.923  (24.0s)\n[forda] alpha0.50_proj64_seed3  erank_h(clean)=2.19  lin=0.870  ft=0.888  (23.9s)\n[forda] alpha0.50_proj64_seed4  erank_h(clean)=2.48  lin=0.852  ft=0.932  (24.0s)\n[forda] alpha0.50_proj512_seed0  erank_h(clean)=2.71  lin=0.862  ft=0.927  (23.5s)\n[forda] alpha0.50_proj512_seed1  erank_h(clean)=2.75  lin=0.885  ft=0.932  (23.5s)\n[forda] alpha0.50_proj512_seed2  erank_h(clean)=2.82  lin=0.889  ft=0.893  (23.5s)\n[forda] alpha0.50_proj512_seed3  erank_h(clean)=2.67  lin=0.898  ft=0.802  (23.5s)\n[forda] alpha0.50_proj512_seed4  erank_h(clean)=2.91  lin=0.886  ft=0.931  (23.5s)\n[forda] alpha0.75_proj64_seed0  erank_h(clean)=2.10  lin=0.852  ft=0.917  (23.9s)\n[forda] alpha0.75_proj64_seed1  erank_h(clean)=2.14  lin=0.834  ft=0.935  (23.8s)\n[forda] alpha0.75_proj64_seed2  erank_h(clean)=2.20  lin=0.839  ft=0.927  (23.7s)\n[forda] alpha0.75_proj64_seed3  erank_h(clean)=2.20  lin=0.852  ft=0.923  (23.8s)\n[forda] alpha0.75_proj64_seed4  erank_h(clean)=2.05  lin=0.858  ft=0.919  (23.8s)\n[forda] alpha0.75_proj512_seed0  erank_h(clean)=2.64  lin=0.866  ft=0.925  (23.5s)\n[forda] alpha0.75_proj512_seed1  erank_h(clean)=2.69  lin=0.860  ft=0.920  (23.5s)\n[forda] alpha0.75_proj512_seed2  erank_h(clean)=2.66  lin=0.853  ft=0.902  (23.4s)\n[forda] alpha0.75_proj512_seed3  erank_h(clean)=2.30  lin=0.885  ft=0.857  (23.5s)\n[forda] alpha0.75_proj512_seed4  erank_h(clean)=2.87  lin=0.855  ft=0.897  (23.5s)\n[forda] alpha1.00_proj64_seed0  erank_h(clean)=2.16  lin=0.805  ft=0.930  (23.7s)\n[forda] alpha1.00_proj64_seed1  erank_h(clean)=1.92  lin=0.827  ft=0.912  (23.9s)\n[forda] alpha1.00_proj64_seed2  erank_h(clean)=1.97  lin=0.800  ft=0.930  (23.9s)\n[forda] alpha1.00_proj64_seed3  erank_h(clean)=1.95  lin=0.833  ft=0.906  (23.7s)\n[forda] alpha1.00_proj64_seed4  erank_h(clean)=2.35  lin=0.811  ft=0.904  (23.7s)\n[forda] alpha1.00_proj512_seed0  erank_h(clean)=2.40  lin=0.859  ft=0.927  (23.3s)\n[forda] alpha1.00_proj512_seed1  erank_h(clean)=2.33  lin=0.852  ft=0.925  (23.3s)\n[forda] alpha1.00_proj512_seed2  erank_h(clean)=2.45  lin=0.870  ft=0.851  (23.3s)\n[forda] alpha1.00_proj512_seed3  erank_h(clean)=2.15  lin=0.861  ft=0.855  (23.4s)\n[forda] alpha1.00_proj512_seed4  erank_h(clean)=2.44  lin=0.851  ft=0.917  (23.2s)\n=== forda sweep done (50/50 attempted) ===\n\n=== har: 50 runs (5 alphas x 2 widths x 5 seeds) ===\n[har] alpha0.00_proj64_seed0  erank_h(clean)=29.51  lin=0.785  ft=0.908  (37.4s)\n[har] alpha0.00_proj64_seed1  erank_h(clean)=27.25  lin=0.796  ft=0.913  (37.5s)\n[har] alpha0.00_proj64_seed2  erank_h(clean)=28.26  lin=0.806  ft=0.905  (37.3s)\n[har] alpha0.00_proj64_seed3  erank_h(clean)=27.30  lin=0.787  ft=0.890  (37.4s)\n[har] alpha0.00_proj64_seed4  erank_h(clean)=28.09  lin=0.777  ft=0.848  (37.4s)\n[har] alpha0.00_proj512_seed0  erank_h(clean)=39.70  lin=0.758  ft=0.884  (36.1s)\n[har] alpha0.00_proj512_seed1  erank_h(clean)=40.14  lin=0.735  ft=0.892  (36.2s)\n[har] alpha0.00_proj512_seed2  erank_h(clean)=41.20  lin=0.761  ft=0.923  (36.2s)\n[har] alpha0.00_proj512_seed3  erank_h(clean)=39.90  lin=0.763  ft=0.908  (36.1s)\n[har] alpha0.00_proj512_seed4  erank_h(clean)=41.26  lin=0.776  ft=0.902  (36.0s)\n[har] alpha0.25_proj64_seed0  erank_h(clean)=21.18  lin=0.815  ft=0.910  (47.1s)\n[har] alpha0.25_proj64_seed1  erank_h(clean)=21.26  lin=0.822  ft=0.928  (47.1s)\n[har] alpha0.25_proj64_seed2  erank_h(clean)=21.52  lin=0.824  ft=0.878  (47.4s)\n[har] alpha0.25_proj64_seed3  erank_h(clean)=21.20  lin=0.824  ft=0.910  (47.2s)\n[har] alpha0.25_proj64_seed4  erank_h(clean)=22.33  lin=0.830  ft=0.912  (47.3s)\n[har] alpha0.25_proj512_seed0  erank_h(clean)=27.94  lin=0.842  ft=0.836  (45.7s)\n[har] alpha0.25_proj512_seed1  erank_h(clean)=27.94  lin=0.827  ft=0.927  (45.6s)\n[har] alpha0.25_proj512_seed2  erank_h(clean)=26.47  lin=0.827  ft=0.799  (45.9s)\n[har] alpha0.25_proj512_seed3  erank_h(clean)=27.76  lin=0.818  ft=0.901  (46.4s)\n[har] alpha0.25_proj512_seed4  erank_h(clean)=27.78  lin=0.838  ft=0.902  (45.6s)\n[har] alpha0.50_proj64_seed0  erank_h(clean)=19.86  lin=0.849  ft=0.809  (47.8s)\n[har] alpha0.50_proj64_seed1  erank_h(clean)=19.00  lin=0.835  ft=0.911  (48.0s)\n[har] alpha0.50_proj64_seed2  erank_h(clean)=18.30  lin=0.827  ft=0.888  (47.9s)\n[har] alpha0.50_proj64_seed3  erank_h(clean)=18.26  lin=0.862  ft=0.910  (47.8s)\n[har] alpha0.50_proj64_seed4  erank_h(clean)=20.47  lin=0.864  ft=0.916  (47.9s)\n[har] alpha0.50_proj512_seed0  erank_h(clean)=23.72  lin=0.867  ft=0.871  (46.3s)\n[har] alpha0.50_proj512_seed1  erank_h(clean)=23.79  lin=0.854  ft=0.923  (46.0s)\n[har] alpha0.50_proj512_seed2  erank_h(clean)=23.14  lin=0.843  ft=0.908  (46.1s)\n[har] alpha0.50_proj512_seed3  erank_h(clean)=24.28  lin=0.850  ft=0.905  (46.1s)\n[har] alpha0.50_proj512_seed4  erank_h(clean)=23.70  lin=0.865  ft=0.914  (46.2s)\n[har] alpha0.75_proj64_seed0  erank_h(clean)=18.34  lin=0.849  ft=0.897  (48.2s)\n[har] alpha0.75_proj64_seed1  erank_h(clean)=19.19  lin=0.854  ft=0.909  (48.7s)\n[har] alpha0.75_proj64_seed2  erank_h(clean)=17.45  lin=0.840  ft=0.897  (48.6s)\n[har] alpha0.75_proj64_seed3  erank_h(clean)=18.28  lin=0.828  ft=0.906  (48.3s)\n[har] alpha0.75_proj64_seed4  erank_h(clean)=19.00  lin=0.859  ft=0.920  (48.1s)\n[har] alpha0.75_proj512_seed0  erank_h(clean)=21.87  lin=0.859  ft=0.902  (46.7s)\n[har] alpha0.75_proj512_seed1  erank_h(clean)=21.66  lin=0.861  ft=0.915  (46.7s)\n[har] alpha0.75_proj512_seed2  erank_h(clean)=20.85  lin=0.865  ft=0.845  (46.5s)\n[har] alpha0.75_proj512_seed3  erank_h(clean)=22.41  lin=0.858  ft=0.898  (46.8s)\n[har] alpha0.75_proj512_seed4  erank_h(clean)=22.61  lin=0.864  ft=0.863  (47.0s)\n[har] alpha1.00_proj64_seed0  erank_h(clean)=18.79  lin=0.842  ft=0.889  (48.5s)\n[har] alpha1.00_proj64_seed1  erank_h(clean)=19.45  lin=0.833  ft=0.904  (48.2s)\n[har] alpha1.00_proj64_seed2  erank_h(clean)=18.11  lin=0.834  ft=0.869  (48.4s)\n[har] alpha1.00_proj64_seed3  erank_h(clean)=18.65  lin=0.837  ft=0.906  (48.3s)\n[har] alpha1.00_proj64_seed4  erank_h(clean)=18.02  lin=0.839  ft=0.894  (48.3s)\n[har] alpha1.00_proj512_seed0  erank_h(clean)=22.16  lin=0.863  ft=0.904  (47.3s)\n[har] alpha1.00_proj512_seed1  erank_h(clean)=22.40  lin=0.848  ft=0.894  (47.7s)\n[har] alpha1.00_proj512_seed2  erank_h(clean)=22.24  lin=0.862  ft=0.884  (47.3s)\n[har] alpha1.00_proj512_seed3  erank_h(clean)=22.94  lin=0.862  ft=0.908  (47.2s)\n[har] alpha1.00_proj512_seed4  erank_h(clean)=22.28  lin=0.844  ft=0.886  (47.3s)\n=== har sweep done (50/50 attempted) ===\n\n=== spokenarabicdigits: 50 runs (5 alphas x 2 widths x 5 seeds) ===\n[spokenarabicdigits] alpha0.00_proj64_seed0  erank_h(clean)=24.17  lin=0.911  ft=0.989  (33.9s)\n[spokenarabicdigits] alpha0.00_proj64_seed1  erank_h(clean)=23.71  lin=0.918  ft=0.991  (34.2s)\n[spokenarabicdigits] alpha0.00_proj64_seed2  erank_h(clean)=24.62  lin=0.928  ft=0.988  (34.0s)\n[spokenarabicdigits] alpha0.00_proj64_seed3  erank_h(clean)=24.13  lin=0.910  ft=0.986  (34.0s)\n[spokenarabicdigits] alpha0.00_proj64_seed4  erank_h(clean)=24.38  lin=0.930  ft=0.992  (34.1s)\n[spokenarabicdigits] alpha0.00_proj512_seed0  erank_h(clean)=34.17  lin=0.680  ft=0.991  (32.9s)\n[spokenarabicdigits] alpha0.00_proj512_seed1  erank_h(clean)=35.40  lin=0.707  ft=0.991  (32.9s)\n[spokenarabicdigits] alpha0.00_proj512_seed2  erank_h(clean)=36.04  lin=0.669  ft=0.988  (33.0s)\n[spokenarabicdigits] alpha0.00_proj512_seed3  erank_h(clean)=33.96  lin=0.762  ft=0.988  (33.0s)\n[spokenarabicdigits] alpha0.00_proj512_seed4  erank_h(clean)=34.93  lin=0.650  ft=0.994  (33.0s)\n[spokenarabicdigits] alpha0.25_proj64_seed0  erank_h(clean)=18.86  lin=0.960  ft=0.995  (43.2s)\n[spokenarabicdigits] alpha0.25_proj64_seed1  erank_h(clean)=17.50  lin=0.962  ft=0.993  (43.1s)\n[spokenarabicdigits] alpha0.25_proj64_seed2  erank_h(clean)=18.80  lin=0.952  ft=0.990  (43.0s)\n[spokenarabicdigits] alpha0.25_proj64_seed3  erank_h(clean)=18.39  lin=0.960  ft=0.991  (43.2s)\n[spokenarabicdigits] alpha0.25_proj64_seed4  erank_h(clean)=18.91  lin=0.947  ft=0.992  (43.2s)\n[spokenarabicdigits] alpha0.25_proj512_seed0  erank_h(clean)=22.13  lin=0.953  ft=0.992  (41.6s)\n[spokenarabicdigits] alpha0.25_proj512_seed1  erank_h(clean)=21.69  lin=0.970  ft=0.992  (41.7s)\n[spokenarabicdigits] alpha0.25_proj512_seed2  erank_h(clean)=22.59  lin=0.952  ft=0.990  (41.5s)\n[spokenarabicdigits] alpha0.25_proj512_seed3  erank_h(clean)=21.31  lin=0.958  ft=0.993  (41.8s)\n[spokenarabicdigits] alpha0.25_proj512_seed4  erank_h(clean)=22.21  lin=0.961  ft=0.993  (42.3s)\n[spokenarabicdigits] alpha0.50_proj64_seed0  erank_h(clean)=18.81  lin=0.948  ft=0.992  (44.4s)\n[spokenarabicdigits] alpha0.50_proj64_seed1  erank_h(clean)=17.88  lin=0.947  ft=0.993  (44.1s)\n[spokenarabicdigits] alpha0.50_proj64_seed2  erank_h(clean)=17.66  lin=0.947  ft=0.986  (46.0s)\n[spokenarabicdigits] alpha0.50_proj64_seed3  erank_h(clean)=18.22  lin=0.949  ft=0.991  (44.4s)\n[spokenarabicdigits] alpha0.50_proj64_seed4  erank_h(clean)=18.08  lin=0.955  ft=0.991  (43.9s)\n[spokenarabicdigits] alpha0.50_proj512_seed0  erank_h(clean)=20.03  lin=0.960  ft=0.993  (43.4s)\n[spokenarabicdigits] alpha0.50_proj512_seed1  erank_h(clean)=20.50  lin=0.962  ft=0.990  (43.8s)\n[spokenarabicdigits] alpha0.50_proj512_seed2  erank_h(clean)=19.49  lin=0.945  ft=0.993  (42.9s)\n[spokenarabicdigits] alpha0.50_proj512_seed3  erank_h(clean)=19.82  lin=0.949  ft=0.996  (42.7s)\n[spokenarabicdigits] alpha0.50_proj512_seed4  erank_h(clean)=21.02  lin=0.958  ft=0.991  (42.5s)\n[spokenarabicdigits] alpha0.75_proj64_seed0  erank_h(clean)=16.81  lin=0.939  ft=0.993  (44.2s)\n[spokenarabicdigits] alpha0.75_proj64_seed1  erank_h(clean)=17.44  lin=0.939  ft=0.990  (44.5s)\n[spokenarabicdigits] alpha0.75_proj64_seed2  erank_h(clean)=17.01  lin=0.954  ft=0.993  (45.6s)\n[spokenarabicdigits] alpha0.75_proj64_seed3  erank_h(clean)=17.84  lin=0.946  ft=0.992  (44.7s)\n[spokenarabicdigits] alpha0.75_proj64_seed4  erank_h(clean)=17.80  lin=0.957  ft=0.990  (45.5s)\n[spokenarabicdigits] alpha0.75_proj512_seed0  erank_h(clean)=19.25  lin=0.956  ft=0.995  (44.3s)\n[spokenarabicdigits] alpha0.75_proj512_seed1  erank_h(clean)=18.94  lin=0.953  ft=0.993  (43.1s)\n[spokenarabicdigits] alpha0.75_proj512_seed2  erank_h(clean)=19.78  lin=0.950  ft=0.988  (43.3s)\n[spokenarabicdigits] alpha0.75_proj512_seed3  erank_h(clean)=19.18  lin=0.946  ft=0.990  (43.6s)\n[spokenarabicdigits] alpha0.75_proj512_seed4  erank_h(clean)=19.85  lin=0.955  ft=0.992  (43.1s)\n[spokenarabicdigits] alpha1.00_proj64_seed0  erank_h(clean)=16.89  lin=0.942  ft=0.992  (44.2s)\n[spokenarabicdigits] alpha1.00_proj64_seed1  erank_h(clean)=16.58  lin=0.950  ft=0.988  (44.0s)\n[spokenarabicdigits] alpha1.00_proj64_seed2  erank_h(clean)=16.02  lin=0.934  ft=0.990  (44.0s)\n[spokenarabicdigits] alpha1.00_proj64_seed3  erank_h(clean)=16.27  lin=0.938  ft=0.995  (44.0s)\n[spokenarabicdigits] alpha1.00_proj64_seed4  erank_h(clean)=17.08  lin=0.951  ft=0.992  (44.1s)\n[spokenarabicdigits] alpha1.00_proj512_seed0  erank_h(clean)=18.47  lin=0.957  ft=0.995  (43.4s)\n[spokenarabicdigits] alpha1.00_proj512_seed1  erank_h(clean)=18.68  lin=0.943  ft=0.992  (43.8s)\n[spokenarabicdigits] alpha1.00_proj512_seed2  erank_h(clean)=18.88  lin=0.948  ft=0.993  (44.7s)\n[spokenarabicdigits] alpha1.00_proj512_seed3  erank_h(clean)=18.16  lin=0.947  ft=0.990  (43.7s)\n[spokenarabicdigits] alpha1.00_proj512_seed4  erank_h(clean)=18.54  lin=0.952  ft=0.994  (43.6s)\n=== spokenarabicdigits sweep done (50/50 attempted) ===\n\n=== eigenworms: 50 runs (5 alphas x 2 widths x 5 seeds) ===\n[eigenworms] alpha0.00_proj64_seed0  erank_h(clean)=10.44  lin=0.420  ft=0.740  (3.9s)\n[eigenworms] alpha0.00_proj64_seed1  erank_h(clean)=11.73  lin=0.412  ft=0.786  (4.0s)\n[eigenworms] alpha0.00_proj64_seed2  erank_h(clean)=12.81  lin=0.412  ft=0.786  (4.0s)\n[eigenworms] alpha0.00_proj64_seed3  erank_h(clean)=13.35  lin=0.458  ft=0.740  (4.0s)\n[eigenworms] alpha0.00_proj64_seed4  erank_h(clean)=11.08  lin=0.420  ft=0.748  (4.1s)\n[eigenworms] alpha0.00_proj512_seed0  erank_h(clean)=14.76  lin=0.412  ft=0.786  (4.1s)\n[eigenworms] alpha0.00_proj512_seed1  erank_h(clean)=13.97  lin=0.420  ft=0.786  (4.0s)\n[eigenworms] alpha0.00_proj512_seed2  erank_h(clean)=17.13  lin=0.405  ft=0.725  (4.0s)\n[eigenworms] alpha0.00_proj512_seed3  erank_h(clean)=15.16  lin=0.420  ft=0.756  (4.1s)\n[eigenworms] alpha0.00_proj512_seed4  erank_h(clean)=14.66  lin=0.420  ft=0.725  (4.0s)\n[eigenworms] alpha0.25_proj64_seed0  erank_h(clean)=11.86  lin=0.412  ft=0.794  (4.2s)\n[eigenworms] alpha0.25_proj64_seed1  erank_h(clean)=10.86  lin=0.405  ft=0.718  (4.2s)\n[eigenworms] alpha0.25_proj64_seed2  erank_h(clean)=13.20  lin=0.427  ft=0.786  (4.2s)\n[eigenworms] alpha0.25_proj64_seed3  erank_h(clean)=12.66  lin=0.405  ft=0.771  (4.2s)\n[eigenworms] alpha0.25_proj64_seed4  erank_h(clean)=11.92  lin=0.412  ft=0.771  (4.3s)\n[eigenworms] alpha0.25_proj512_seed0  erank_h(clean)=14.53  lin=0.290  ft=0.794  (4.3s)\n[eigenworms] alpha0.25_proj512_seed1  erank_h(clean)=14.18  lin=0.427  ft=0.756  (4.2s)\n[eigenworms] alpha0.25_proj512_seed2  erank_h(clean)=16.52  lin=0.412  ft=0.802  (4.2s)\n[eigenworms] alpha0.25_proj512_seed3  erank_h(clean)=14.91  lin=0.420  ft=0.794  (4.3s)\n[eigenworms] alpha0.25_proj512_seed4  erank_h(clean)=13.87  lin=0.496  ft=0.794  (4.3s)\n[eigenworms] alpha0.50_proj64_seed0  erank_h(clean)=9.92  lin=0.328  ft=0.794  (4.2s)\n[eigenworms] alpha0.50_proj64_seed1  erank_h(clean)=10.82  lin=0.420  ft=0.748  (4.2s)\n[eigenworms] alpha0.50_proj64_seed2  erank_h(clean)=11.50  lin=0.420  ft=0.740  (4.2s)\n[eigenworms] alpha0.50_proj64_seed3  erank_h(clean)=11.35  lin=0.412  ft=0.763  (4.2s)\n[eigenworms] alpha0.50_proj64_seed4  erank_h(clean)=11.73  lin=0.420  ft=0.733  (4.2s)\n[eigenworms] alpha0.50_proj512_seed0  erank_h(clean)=12.46  lin=0.260  ft=0.756  (4.2s)\n[eigenworms] alpha0.50_proj512_seed1  erank_h(clean)=13.32  lin=0.458  ft=0.802  (4.2s)\n[eigenworms] alpha0.50_proj512_seed2  erank_h(clean)=13.65  lin=0.412  ft=0.779  (4.2s)\n[eigenworms] alpha0.50_proj512_seed3  erank_h(clean)=12.91  lin=0.420  ft=0.794  (4.2s)\n[eigenworms] alpha0.50_proj512_seed4  erank_h(clean)=13.44  lin=0.473  ft=0.794  (4.2s)\n[eigenworms] alpha0.75_proj64_seed0  erank_h(clean)=9.32  lin=0.435  ft=0.740  (4.2s)\n[eigenworms] alpha0.75_proj64_seed1  erank_h(clean)=10.12  lin=0.405  ft=0.847  (4.2s)\n[eigenworms] alpha0.75_proj64_seed2  erank_h(clean)=9.45  lin=0.420  ft=0.725  (4.2s)\n[eigenworms] alpha0.75_proj64_seed3  erank_h(clean)=10.61  lin=0.420  ft=0.756  (4.1s)\n[eigenworms] alpha0.75_proj64_seed4  erank_h(clean)=11.08  lin=0.374  ft=0.756  (4.2s)\n[eigenworms] alpha0.75_proj512_seed0  erank_h(clean)=10.84  lin=0.458  ft=0.725  (4.2s)\n[eigenworms] alpha0.75_proj512_seed1  erank_h(clean)=11.29  lin=0.435  ft=0.786  (4.2s)\n[eigenworms] alpha0.75_proj512_seed2  erank_h(clean)=12.14  lin=0.420  ft=0.756  (4.2s)\n[eigenworms] alpha0.75_proj512_seed3  erank_h(clean)=11.78  lin=0.351  ft=0.786  (4.2s)\n[eigenworms] alpha0.75_proj512_seed4  erank_h(clean)=11.85  lin=0.420  ft=0.763  (4.3s)\n[eigenworms] alpha1.00_proj64_seed0  erank_h(clean)=8.74  lin=0.366  ft=0.695  (4.2s)\n[eigenworms] alpha1.00_proj64_seed1  erank_h(clean)=9.28  lin=0.420  ft=0.748  (4.2s)\n[eigenworms] alpha1.00_proj64_seed2  erank_h(clean)=8.83  lin=0.412  ft=0.695  (4.2s)\n[eigenworms] alpha1.00_proj64_seed3  erank_h(clean)=9.81  lin=0.389  ft=0.771  (4.2s)\n[eigenworms] alpha1.00_proj64_seed4  erank_h(clean)=9.43  lin=0.427  ft=0.702  (4.2s)\n[eigenworms] alpha1.00_proj512_seed0  erank_h(clean)=10.17  lin=0.420  ft=0.771  (4.2s)\n[eigenworms] alpha1.00_proj512_seed1  erank_h(clean)=10.43  lin=0.435  ft=0.763  (4.2s)\n[eigenworms] alpha1.00_proj512_seed2  erank_h(clean)=11.84  lin=0.420  ft=0.763  (4.3s)\n[eigenworms] alpha1.00_proj512_seed3  erank_h(clean)=11.27  lin=0.397  ft=0.794  (4.2s)\n[eigenworms] alpha1.00_proj512_seed4  erank_h(clean)=10.95  lin=0.481  ft=0.779  (4.2s)\n=== eigenworms sweep done (50/50 attempted) ===\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "xXTn",
+      "code_hash": "2d2575b704d2518862411b511beb0057",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"12-analysis\">12. Analysis</h2>\n<span class=\"paragraph\">Loads every run JSON, builds one DataFrame per dataset, and reports:</span>\n<ul>\n<li>naive (augmented-view, projector-only) vs. corrected (clean, encoder)\n  erank-accuracy relationship, pooled and partial (fixes #1, #4, #7)</li>\n<li>both raw-n and config-level-n correlations (fix #5)</li>\n<li>early-prediction (H2) regressed on BOTH accuracy types (fix #11)</li>\n<li>actual cross-dataset comparison (fix #12)</li>\n<li>baseline comparison table (fix #9)</li>\n</ul></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "AjVT",
+      "code_hash": "039b1a968442fd28a336ccc821e64888",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "wlCL",
+      "code_hash": "cd1b61ac89340a3091a2ba0fca8c3215",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "Loaded runs for 5/5 datasets (250 total run rows).\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "pHFh",
+      "code_hash": "822e8a2810eb0e841dd016aec192e6f7",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"13-cross-dataset-comparison-fix-12-actually-implemented-this-time\">13. Cross-dataset comparison (fix #12 -- actually implemented this time)</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "NCOB",
+      "code_hash": "332937a86d6deb19809d55083b7f4f6d",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "aqbW",
+      "code_hash": "c377a6063b893e3ee5bae901282f0795",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"14-baselines-table-fix-9\">14. Baselines table (fix #9)</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "TRpd",
+      "code_hash": "f3f0318c114e8d5d30c520074014cca2",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='TRpd-0' random-id='da81e700-bd95-fa98-965e-6c2c62c79e69'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.5837777777777777,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.6663703703703704,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9318518518518518,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;forda&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.5159090909090909,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.5159090909090909,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9060606060606061,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;har&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.18221920597217509,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4468951476077367,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.8993326546770728,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;spokenarabicdigits&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.1,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4566666666666667,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.9910606060606062,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;eigenworms&#92;&quot;,&#92;&quot;majority_class_acc&#92;&quot;:0.4198473282442748,&#92;&quot;random_encoder_linear_probe_acc_mean&#92;&quot;:0.4198473282442748,&#92;&quot;random_encoder_finetune_acc_mean&#92;&quot;:0.7709923664122137,&#92;&quot;random_encoder_n_seeds&#92;&quot;:3}]&quot;' data-total-rows='5' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='false' data-page-size='10' data-field-types='[[&quot;dataset&quot;,[&quot;string&quot;,&quot;str&quot;]],[&quot;majority_class_acc&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_linear_probe_acc_mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_finetune_acc_mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;random_encoder_n_seeds&quot;,[&quot;integer&quot;,&quot;int64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-search='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-hidden-columns='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "TXez",
+      "code_hash": "aaacb012ed61b70b78ecec47460c9321",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"15-capacity-channels-x-length-observation-fix-17\">15. Capacity (channels x length) observation (fix #17)</h2>\n<span class=\"paragraph\"><strong>Reframed as descriptive only.</strong> With n=5 datasets, any ordering claim is\nunderpowered -- this is reported as an exploratory observation, not\nevidence of a predictive relationship.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "dNNg",
+      "code_hash": "68b9e05c30c238107a9f6e6b73a1494a",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "Descriptive only (n=5, not a validated predictor):\n              dataset  channels  length  capacity\n0             ecg5000         1     140       140\n1               forda         1     500       500\n2                 har         9     128      1152\n3  spokenarabicdigits        13      93      1209\n4          eigenworms         6   17984    107904\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "yCnT",
+      "code_hash": "bf9f9ad0d8aab933092fbfab8255d9f5",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"16-honest-limitations-fix-10-plus-anything-not-fully-fixable\">16. Honest limitations (fix #10, plus anything not fully fixable)</h2>\n<ul>\n<li><strong>Single SSL method.</strong> Every claim here is about VICReg specifically, not\n  SSL broadly -- collapse dynamics differ across contrastive/non-contrastive\n  methods and are not assumed to transfer.</li>\n<li><strong>Compute-bounded epoch counts for EigenWorms</strong> given its sequence length;\n  if you shortened epochs for time, say so explicitly next to those numbers.</li>\n<li><strong>Partial correlation controls for alpha and width as observed</strong>, not a\n  full causal graph -- residual confounding from unmeasured factors (e.g.\n  learning-rate interactions with alpha) isn't ruled out.</li>\n<li>All other flaws from the audit (1-3, 5-9, 11-17) are fixed in the pipeline\n  above; #4 remains a <em>reporting</em> discipline -- always lead with the partial\n  correlation, not the pooled one.</li>\n</ul></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "wclF",
+      "code_hash": "955bbfd840d7225487633974e23c3c35",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='wclF-0' random-id='c42ec33a-30c1-079f-fecf-42840be319b6'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.0,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:0,&#92;&quot;final_erank_clean_h&#92;&quot;:8.789323806762695,&#92;&quot;final_erank_clean_z&#92;&quot;:9.374879837036133,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:9.424697875976562,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:8.789323806762695,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:9.424697875976562,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.5846666666666667,&#92;&quot;finetune_test_acc&#92;&quot;:0.9308888888888889},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.0,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:1,&#92;&quot;final_erank_clean_h&#92;&quot;:9.509040832519531,&#92;&quot;final_erank_clean_z&#92;&quot;:27.351806640625,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:24.387760434831893,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:5.521605491638184,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:10.271086420331683,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.6595555555555556,&#92;&quot;finetune_test_acc&#92;&quot;:0.9337777777777778},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.0,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:2,&#92;&quot;final_erank_clean_h&#92;&quot;:11.735292434692383,&#92;&quot;final_erank_clean_z&#92;&quot;:28.777637481689453,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:25.040406363351003,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:7.280285358428955,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:10.611516407557897,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.5837777777777777,&#92;&quot;finetune_test_acc&#92;&quot;:0.9357777777777778},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.0,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:3,&#92;&quot;final_erank_clean_h&#92;&quot;:10.932753562927246,&#92;&quot;final_erank_clean_z&#92;&quot;:26.726089477539062,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:25.02348436628069,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:7.462995529174805,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:10.385702678135463,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.5815555555555556,&#92;&quot;finetune_test_acc&#92;&quot;:0.9302222222222222},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.0,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:4,&#92;&quot;final_erank_clean_h&#92;&quot;:10.977649688720703,&#92;&quot;final_erank_clean_z&#92;&quot;:27.697187423706055,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:24.49249812534877,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:6.109645366668701,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:10.265177726745605,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.5851111111111111,&#92;&quot;finetune_test_acc&#92;&quot;:0.9284444444444444},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.25,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:0,&#92;&quot;final_erank_clean_h&#92;&quot;:4.7459845542907715,&#92;&quot;final_erank_clean_z&#92;&quot;:15.310670852661133,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:16.210518973214285,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:4.957624435424805,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:7.850898810795376,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.8606666666666667,&#92;&quot;finetune_test_acc&#92;&quot;:0.9308888888888889},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.25,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:1,&#92;&quot;final_erank_clean_h&#92;&quot;:4.063222408294678,&#92;&quot;final_erank_clean_z&#92;&quot;:17.60145378112793,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:15.914593015398298,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:3.68241286277771,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:7.984231744493757,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.8757777777777778,&#92;&quot;finetune_test_acc&#92;&quot;:0.9317777777777778},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.25,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:2,&#92;&quot;final_erank_clean_h&#92;&quot;:4.121551513671875,&#92;&quot;final_erank_clean_z&#92;&quot;:16.562210083007812,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:15.370116370064872,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:4.35899543762207,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:8.133838789803642,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.8704444444444445,&#92;&quot;finetune_test_acc&#92;&quot;:0.9282222222222222},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.25,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:3,&#92;&quot;final_erank_clean_h&#92;&quot;:3.996786594390869,&#92;&quot;final_erank_clean_z&#92;&quot;:15.955971717834473,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:15.198438371930804,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:4.0607194900512695,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:7.687266894749233,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.8662222222222222,&#92;&quot;finetune_test_acc&#92;&quot;:0.9302222222222222},{&#92;&quot;dataset&#92;&quot;:&#92;&quot;ecg5000&#92;&quot;,&#92;&quot;alpha&#92;&quot;:0.25,&#92;&quot;projector_width&#92;&quot;:64,&#92;&quot;seed&#92;&quot;:4,&#92;&quot;final_erank_clean_h&#92;&quot;:3.829401731491089,&#92;&quot;final_erank_clean_z&#92;&quot;:16.39536476135254,&#92;&quot;final_erank_aug_z_LEGACY&#92;&quot;:15.686728613717216,&#92;&quot;early_erank_clean_h_5ep&#92;&quot;:4.157555103302002,&#92;&quot;early_erank_aug_z_5ep_LEGACY&#92;&quot;:8.066378457205635,&#92;&quot;linear_probe_test_acc&#92;&quot;:0.8837777777777778,&#92;&quot;finetune_test_acc&#92;&quot;:0.9226666666666666}]&quot;' data-total-rows='250' data-total-columns='11' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;dataset&quot;,[&quot;string&quot;,&quot;str&quot;]],[&quot;alpha&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;projector_width&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;seed&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;final_erank_clean_h&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;final_erank_clean_z&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;final_erank_aug_z_LEGACY&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;early_erank_clean_h_5ep&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;early_erank_aug_z_5ep_LEGACY&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;linear_probe_test_acc&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;finetune_test_acc&quot;,[&quot;number&quot;,&quot;float64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-search='true' data-show-column-summaries='true' data-show-data-types='true' data-show-page-size-selector='true' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-hidden-columns='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "=== Pooled (all datasets) ===\n      accuracy_metric  pooled_r_raw_n  pooled_p_raw_n  n_raw  partial_r_controls_alpha_width  partial_p  config_level_r  config_level_p  n_config\nlinear_probe_test_acc        0.016904        0.790275    250                        0.077039   0.224825        0.017180        0.905737        50\n    finetune_test_acc        0.148396        0.018895    250                        0.153018   0.015454        0.151778        0.292707        50\n\n=== Per-dataset ===\n           dataset       accuracy_metric         r            p  n\n           ecg5000 linear_probe_test_acc -0.938127 9.525563e-24 50\n           ecg5000     finetune_test_acc  0.192714 1.799736e-01 50\n        eigenworms linear_probe_test_acc  0.042071 7.717446e-01 50\n        eigenworms     finetune_test_acc  0.336448 1.689544e-02 50\n             forda linear_probe_test_acc -0.632932 8.141048e-07 50\n             forda     finetune_test_acc  0.091592 5.269923e-01 50\n               har linear_probe_test_acc -0.793910 6.066239e-12 50\n               har     finetune_test_acc  0.025353 8.612611e-01 50\nspokenarabicdigits linear_probe_test_acc -0.909937 5.647742e-20 50\nspokenarabicdigits     finetune_test_acc -0.203701 1.559353e-01 50\n\n=== Early-prediction, pooled ===\n      target_accuracy  pearson_r  pearson_p  r_squared     slope   n\nlinear_probe_test_acc  -0.012316   0.846360   0.000152 -0.000299 250\n    finetune_test_acc   0.076075   0.230697   0.005787  0.000746 250\n\n=== Early-prediction, per-dataset ===\n           dataset       target_accuracy         r            p  n\n           ecg5000 linear_probe_test_acc -0.914427 1.742974e-20 50\n           ecg5000     finetune_test_acc  0.149814 2.990716e-01 50\n        eigenworms linear_probe_test_acc -0.015514 9.148402e-01 50\n        eigenworms     finetune_test_acc  0.240184 9.293842e-02 50\n             forda linear_probe_test_acc -0.569323 1.599004e-05 50\n             forda     finetune_test_acc  0.059627 6.808323e-01 50\n               har linear_probe_test_acc -0.813224 7.228044e-13 50\n               har     finetune_test_acc  0.018481 8.986326e-01 50\nspokenarabicdigits linear_probe_test_acc -0.897134 1.183070e-18 50\nspokenarabicdigits     finetune_test_acc -0.152298 2.910380e-01 50\n\nSaved 250 rows across 5 datasets to ./results/all_runs.csv\n\nRuns per dataset:\n           dataset  n_runs\n           ecg5000      50\n             forda      50\n               har      50\nspokenarabicdigits      50\n        eigenworms      50\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "PSKi",
+      "code_hash": "6a66992264a0a7aa55a456a45c220f80",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<pre class='text-xs'>CompletedProcess(args=&#x27;rm -rf repo_clone&#x27;, returncode=0)</pre>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "xWXb",
+      "code_hash": "eec8825f72150331b5265e925e4613a2",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "Paste your GitHub token here (hidden input): ",
+          "mimetype": "text/password"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "config": {
+    "dataset": "ecg5000",
+    "alpha": 0.0,
+    "projector_width": 64,
+    "epochs": 3,
+    "batch_size": 64,
+    "seed": 0,
+    "probe_split_seed": 42,
+    "in_channels": 1,
+    "num_classes": 5
+  },
+  "erank_clean_h_trajectory": [
+    7.6803812980651855,
+    8.134939193725586,
+    8.789323806762695
+  ],
+  "erank_clean_z_trajectory": [
+    4.16406774520874,
+    5.382690906524658,
+    9.374879837036133
+  ],
+  "erank_aug_z_trajectory_LEGACY": [
+    11.712983131408691,
+    9.317051751273018,
+    9.424697875976562
+  ],
+  "loss_trajectory": [
+    31.510970524379186,
+    27.378604888916016,
+    25.024314607892716
+  ],
+  "final_erank_clean_h": 8.789323806762695,
+  "final_erank_clean_z": 9.374879837036133,
+  "final_erank_aug_z_LEGACY": 9.424697875976562,
+  "early_erank_clean_h_5ep": 8.789323806762695,
+  "early_erank_clean_z_5ep": 9.374879837036133,
+  "early_erank_aug_z_5ep_LEGACY": 9.424697875976562,
+  "train_time_sec": 0.45182037353515625,
+  "downstream": {
+    "linear_probe_test_acc": 0.5846666666666667,
+    "linear_probe_val_acc": 0.6,
+    "finetune_test_acc": 0.9308888888888889,
+    "finetune_val_acc": 0.94
+  }
+}
