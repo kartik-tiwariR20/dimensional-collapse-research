@@ -807,7 +807,7 @@ def _(glob, json, os, pd, sm, stats):
         y_resid = df[y] - sm.OLS(df[y], Xc).fit().predict(Xc)
         return stats.pearsonr(x_resid, y_resid)
 
-    return load_runs, partial_corr
+    return (load_runs,)
 
 
 @app.cell
@@ -915,120 +915,73 @@ def _(mo):
 
 
 @app.cell
-def _(
-    FIG_ROOT,
-    OUT_ROOT,
-    all_dfs,
-    analysis_df,
-    np,
-    os,
-    partial_corr,
-    pd,
-    plt,
-    sm,
-    stats,
-):
-    # ============================================================
-    # Alpha vs erank | erank vs accuracy | early-prediction | full results table
-    # (all with per-dataset breakdowns, since you have 5 datasets)
-    # ============================================================
+def _(os):
+    old_files = [
+        "figures/alpha_vs_erank_per_dataset.png",
+        "figures/cross_dataset_alpha_vs_erank.png",
+        "figures/early_prediction.png",
+        "figures/erank_vs_accuracy.png",
+    ]
+    for f in old_files:
+        if os.path.exists(f):
+            os.remove(f)
+            print(f"Deleted {f}")
+        else:
+            print(f"Not found (already gone): {f}")
+    return
 
-    # --- 1. Alpha vs erank, per dataset ---
-    _n = len(all_dfs)
-    _fig, _axes = plt.subplots(1, _n, figsize=(5 * _n, 4), squeeze=False)
-    for _ax, (_name, _df) in zip(_axes[0], all_dfs.items()):
+
+@app.cell
+def _(FIG_ROOT, OUT_ROOT, all_dfs, np, os, plt, sm, stats):
+    for _ds_name, _df in all_dfs.items():
+        _fig_dir = os.path.join(FIG_ROOT, _ds_name)
+        _res_dir = os.path.join(OUT_ROOT, _ds_name)
+        os.makedirs(_fig_dir, exist_ok=True)
+        os.makedirs(_res_dir, exist_ok=True)
+
+        # alpha_vs_erank.png
+        _fig, _ax = plt.subplots(figsize=(6, 4.5))
         for _w, _sub in _df.groupby('projector_width'):
             _agg = _sub.groupby('alpha')['final_erank_clean_h'].agg(['mean', 'std']).reset_index()
             _ax.errorbar(_agg['alpha'], _agg['mean'], yerr=_agg['std'], marker='o', label=f'width={_w}')
         _ax.set_xlabel('alpha'); _ax.set_ylabel('final erank(h), clean')
-        _ax.set_title(_name); _ax.legend()
-    _fig.tight_layout()
-    _fig.savefig(os.path.join(FIG_ROOT, 'alpha_vs_erank_per_dataset.png'), dpi=150)
-    plt.show()
+        _ax.set_title(f'{_ds_name}: alpha vs erank'); _ax.legend()
+        _fig.tight_layout()
+        _fig.savefig(os.path.join(_fig_dir, 'alpha_vs_erank.png'), dpi=150)
+        plt.close(_fig)
 
-    # --- 2. Erank vs accuracy: pooled AND per-dataset ---
-    _corr_rows = []
-    for _acc_col in ['linear_probe_test_acc', 'finetune_test_acc']:
-        _pooled_r, _pooled_p = stats.pearsonr(analysis_df['final_erank_clean_h'], analysis_df[_acc_col])
-        _partial_r, _partial_p = partial_corr(analysis_df, 'final_erank_clean_h', _acc_col, ['alpha', 'projector_width'])
-        _cfg = (analysis_df.groupby(['dataset', 'alpha', 'projector_width'])[['final_erank_clean_h', _acc_col]]
-                .mean().reset_index())
-        _cfg_r, _cfg_p = stats.pearsonr(_cfg['final_erank_clean_h'], _cfg[_acc_col])
-        _corr_rows.append({
-            'accuracy_metric': _acc_col,
-            'pooled_r_raw_n': _pooled_r, 'pooled_p_raw_n': _pooled_p, 'n_raw': len(analysis_df),
-            'partial_r_controls_alpha_width': _partial_r, 'partial_p': _partial_p,
-            'config_level_r': _cfg_r, 'config_level_p': _cfg_p, 'n_config': len(_cfg),
-        })
-    erank_accuracy_corr_df = pd.DataFrame(_corr_rows)
-    print("=== Pooled (all datasets) ===")
-    print(erank_accuracy_corr_df.to_string(index=False))
-
-    _per_ds_rows = []
-    for _ds_name, _df in analysis_df.groupby('dataset'):
-        for _acc_col in ['linear_probe_test_acc', 'finetune_test_acc']:
+        # erank_vs_accuracy.png
+        _fig, _axes = plt.subplots(1, 2, figsize=(11, 4.5))
+        for _ax, _acc_col in zip(_axes, ['linear_probe_test_acc', 'finetune_test_acc']):
             _r, _p = stats.pearsonr(_df['final_erank_clean_h'], _df[_acc_col])
-            _per_ds_rows.append({'dataset': _ds_name, 'accuracy_metric': _acc_col, 'r': _r, 'p': _p, 'n': len(_df)})
-    erank_accuracy_per_dataset_df = pd.DataFrame(_per_ds_rows)
-    print("\n=== Per-dataset ===")
-    print(erank_accuracy_per_dataset_df.to_string(index=False))
+            _ax.scatter(_df['final_erank_clean_h'], _df[_acc_col], alpha=0.5, s=20)
+            _ax.set_xlabel('final erank(h), clean'); _ax.set_ylabel(_acc_col)
+            _ax.set_title(f'{_ds_name}: erank vs {_acc_col} (r={_r:.2f})')
+        _fig.tight_layout()
+        _fig.savefig(os.path.join(_fig_dir, 'erank_vs_accuracy.png'), dpi=150)
+        plt.close(_fig)
 
-    _fig2, _axes2 = plt.subplots(1, 2, figsize=(11, 4.5))
-    for _ax, _acc_col in zip(_axes2, ['linear_probe_test_acc', 'finetune_test_acc']):
-        for _name, _df in analysis_df.groupby('dataset'):
-            _ax.scatter(_df['final_erank_clean_h'], _df[_acc_col], alpha=0.5, s=20, label=_name)
-        _ax.set_xlabel('final erank(h), clean'); _ax.set_ylabel(_acc_col)
-        _ax.set_title(f'erank vs {_acc_col}')
-    _axes2[0].legend(fontsize=8)
-    _fig2.tight_layout()
-    _fig2.savefig(os.path.join(FIG_ROOT, 'erank_vs_accuracy.png'), dpi=150)
-    plt.show()
-
-    # --- 3. Early-prediction (H2): pooled AND per-dataset ---
-    _early_rows = []
-    _fig3, _axes3 = plt.subplots(1, 2, figsize=(11, 4.5))
-    for _ax, _acc_col in zip(_axes3, ['linear_probe_test_acc', 'finetune_test_acc']):
-        _r, _p = stats.pearsonr(analysis_df['early_erank_clean_h_5ep'], analysis_df[_acc_col])
-        _X = sm.add_constant(analysis_df['early_erank_clean_h_5ep'])
-        _fit = sm.OLS(analysis_df[_acc_col], _X).fit()
-        _early_rows.append({
-            'target_accuracy': _acc_col, 'pearson_r': _r, 'pearson_p': _p,
-            'r_squared': _fit.rsquared, 'slope': _fit.params.iloc[1], 'n': len(analysis_df),
-        })
-        for _name, _df in analysis_df.groupby('dataset'):
-            _ax.scatter(_df['early_erank_clean_h_5ep'], _df[_acc_col], alpha=0.5, s=18, label=_name)
-        _xs = np.linspace(analysis_df['early_erank_clean_h_5ep'].min(), analysis_df['early_erank_clean_h_5ep'].max(), 50)
-        _ax.plot(_xs, _fit.params.iloc[0] + _fit.params.iloc[1] * _xs, color='black', linewidth=1)
-        _ax.set_xlabel('erank(h), clean, epoch 5'); _ax.set_ylabel(_acc_col)
-        _ax.set_title(f'early erank -> {_acc_col} (pooled r={_r:.2f})')
-    _axes3[0].legend(fontsize=8)
-    early_prediction_df = pd.DataFrame(_early_rows)
-    print("\n=== Early-prediction, pooled ===")
-    print(early_prediction_df.to_string(index=False))
-
-    _early_per_ds_rows = []
-    for _ds_name, _df in analysis_df.groupby('dataset'):
-        for _acc_col in ['linear_probe_test_acc', 'finetune_test_acc']:
+        # early_prediction.png
+        _fig, _axes = plt.subplots(1, 2, figsize=(11, 4.5))
+        for _ax, _acc_col in zip(_axes, ['linear_probe_test_acc', 'finetune_test_acc']):
             _r, _p = stats.pearsonr(_df['early_erank_clean_h_5ep'], _df[_acc_col])
-            _early_per_ds_rows.append({'dataset': _ds_name, 'target_accuracy': _acc_col, 'r': _r, 'p': _p, 'n': len(_df)})
-    early_prediction_per_dataset_df = pd.DataFrame(_early_per_ds_rows)
-    print("\n=== Early-prediction, per-dataset ===")
-    print(early_prediction_per_dataset_df.to_string(index=False))
+            _X = sm.add_constant(_df['early_erank_clean_h_5ep'])
+            _fit = sm.OLS(_df[_acc_col], _X).fit()
+            _ax.scatter(_df['early_erank_clean_h_5ep'], _df[_acc_col], alpha=0.5, s=18)
+            _xs = np.linspace(_df['early_erank_clean_h_5ep'].min(), _df['early_erank_clean_h_5ep'].max(), 50)
+            _ax.plot(_xs, _fit.params.iloc[0] + _fit.params.iloc[1] * _xs, color='black', linewidth=1)
+            _ax.set_xlabel('erank(h), clean, epoch 5'); _ax.set_ylabel(_acc_col)
+            _ax.set_title(f'{_ds_name}: early erank -> {_acc_col} (r={_r:.2f})')
+        _fig.tight_layout()
+        _fig.savefig(os.path.join(_fig_dir, 'early_prediction.png'), dpi=150)
+        plt.close(_fig)
 
-    _fig3.tight_layout()
-    _fig3.savefig(os.path.join(FIG_ROOT, 'early_prediction.png'), dpi=150)
-    plt.show()
+        # results.csv
+        _df.to_csv(os.path.join(_res_dir, 'results.csv'), index=False)
 
-    # --- 4. Full results table: all 50 runs x 5 datasets, plus a per-dataset summary ---
-    analysis_df.to_csv(os.path.join(OUT_ROOT, 'all_runs.csv'), index=False)
-    print(f"\nSaved {len(analysis_df)} rows across {analysis_df['dataset'].nunique()} datasets "
-          f"to {os.path.join(OUT_ROOT, 'all_runs.csv')}")
+        print(f"{_ds_name}: figures/{_ds_name}/(3 pngs), results/{_ds_name}/results.csv")
 
-    runs_per_dataset = analysis_df['dataset'].value_counts().rename('n_runs').reset_index().rename(columns={'index': 'dataset'})
-    print("\nRuns per dataset:")
-    print(runs_per_dataset.to_string(index=False))
-
-    analysis_df
+    print("\nDone. 15 plots in figures/<dataset>/, 5 results.csv in results/<dataset>/.")
     return
 
 
