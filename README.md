@@ -6,7 +6,7 @@
 
 ## 1. The Research Problem
 
-Self-supervised learning (SSL) models sometimes suffer **dimensional collapse** — the learned embeddings occupy a lower-dimensional subspace than the full embedding dimension, wasting representational capacity.
+Self-supervised learning (SSL) models sometimes suffer **dimensional collapse** -> the learned embeddings occupy a lower-dimensional subspace than the full embedding dimension, wasting representational capacity.
 
 **Our question:** Given augmentation strength (α), projector width, and dataset structure — can we *predict* the effective rank at convergence, and does the relationship between effective rank and downstream performance *transfer* from vision (where it's been studied) to time-series data?
 
